@@ -106,32 +106,98 @@ local SaveManager = {} do
 	end
 
 	function SaveManager:Load(name)
-	    if not name then
-	        return false, "no config file is selected"
-	    end
-	    
-	    local file = self.Folder .. "/settings/" .. name .. ".json"
-	    if not isfile(file) then
-	        return false, "invalid file"
-	    end
-	
-	    local content = readfile(file)
-	    if content == "" then
-	        return false, "empty file"
-	    end
-	
-	    local success, decoded = pcall(httpService.JSONDecode, httpService, content)
-	    if not success then
-	        return false, "decode error"
-	    end
-	
-	    for _, option in next, decoded.objects do
-	        if self.Parser[option.type] then
-	            self.Parser[option.type].Load(option.idx, option)
-	        end
-	    end
-	
-	    return true
+        if (not name) then
+            return false, "no config file is selected"
+        end
+    
+        local file = self.Folder .. "/settings/" .. name .. ".json"
+        if not isfile(file) then return false, "invalid file" end
+    
+        local successRead, fileContent = pcall(readfile, file)
+        if not successRead then return false, "read error: " .. tostring(fileContent) end
+    
+        local successDecode, decoded = pcall(httpService.JSONDecode, httpService, fileContent)
+        if not successDecode then return false, "decode error: " .. tostring(decoded) end 
+    
+        if not decoded or type(decoded.objects) ~= "table" then
+            warn("SaveManager:Load - Invalid or missing 'objects' table in config file:", name) 
+            return false, "invalid config format"
+        end
+    
+        task.spawn(function()
+            task.wait()
+    
+            local itemsLoaded = 0
+            local yieldFrequency = 15
+    
+            for i, option in ipairs(decoded.objects) do 
+                if not option or type(option) ~= "table" or not option.type or not option.idx then
+                     warn(string.format("SaveManager:Load - Skipping invalid/incomplete option data at index %d in config '%s'", i, name))
+                     continue
+                end
+    
+                local parserFunc = self.Parser[option.type]
+                local uiElement = SaveManager.Options[option.idx]
+    
+                if parserFunc and uiElement then
+                    local loadSuccess, loadErrOrData = pcall(function()
+                        if option.type == "Slider" then
+                            local numValue = tonumber(option.value)
+                            if numValue ~= nil then
+                                parserFunc.Load(option.idx, { value = numValue }) 
+                            else
+                                parserFunc.Load(option.idx, option)
+                                warn(string.format("SaveManager:Load - Slider '%s' value '%s' is not a number, attempting load anyway.", option.idx, tostring(option.value)))
+                            end
+                        else
+                            parserFunc.Load(option.idx, option)
+                        end
+                    end)
+    
+                    if not loadSuccess then
+                        warn(string.format("SaveManager:Load - Failed to load option '%s' (Type: %s, Index: %d) in config '%s'. Error: %s",
+                            tostring(option.idx), tostring(option.type), i, name, tostring(loadErrOrData)))
+                    end
+    
+                    itemsLoaded = itemsLoaded + 1
+                    if itemsLoaded % yieldFrequency == 0 then
+                        task.wait()
+                    end
+                else
+                    if not parserFunc then
+                        warn(string.format("SaveManager:Load - No parser found for type '%s' (Option: '%s', Index: %d) in config '%s'",
+                            tostring(option.type), tostring(option.idx), i, name))
+                    end
+                    if not uiElement then
+                         warn(string.format("SaveManager:Load - UI Element not found for index '%s' (Type: '%s', Index: %d) in config '%s'",
+                            tostring(option.idx), tostring(option.type), i, name))
+                    end
+                end
+            end
+            print("Finished loading config in background coroutine:", name)
+        end)
+    
+        return true
+    end
+
+    function SaveManager:IgnoreThemeSettings()
+		self:SetIgnoreIndexes({ 
+			"InterfaceTheme", "AcrylicToggle", "TransparentToggle", "MenuKeybind"
+		})
+	end
+
+	function SaveManager:BuildFolderTree()
+		local paths = {
+			self.Folder,
+			self.Folder .. "/settings"
+		}
+
+		for i = 1, #paths do
+			local str = paths[i]
+			if not isfolder(str) then
+				makefolder(str)
+			end
+		end
 	end
 	
 	function SaveManager:RefreshConfigList()
