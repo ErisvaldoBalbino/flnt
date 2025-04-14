@@ -106,25 +106,45 @@ local SaveManager = {} do
 	end
 
 	function SaveManager:Load(name)
-		if (not name) then
-			return false, "no config file is selected"
-		end
-		
-		local file = self.Folder .. "/settings/" .. name .. ".json"
-		if not isfile(file) then return false, "invalid file" end
-
-		local success, decoded = pcall(httpService.JSONDecode, httpService, readfile(file))
-		if not success then return false, "decode error" end
-
-		for _, option in next, decoded.objects do
-			if self.Parser[option.type] then
-				task.spawn(function() self.Parser[option.type].Load(option.idx, option) end) -- task.spawn() so the config loading wont get stuck.
-			end
-		end
-
-		return true
+	    if (not name) then
+	        return false, "no config file is selected"
+	    end
+	
+	    local file = self.Folder .. "/settings/" .. name .. ".json"
+	    if not isfile(file) then return false, "invalid file" end
+	
+	    local successRead, fileContent = pcall(readfile, file)
+	    if not successRead then return false, "read error: " .. tostring(fileContent) end
+	
+	    local successDecode, decoded = pcall(httpService.JSONDecode, httpService, fileContent)
+	    if not successDecode then return false, "decode error" end
+	
+	    if not decoded or type(decoded.objects) ~= "table" then
+	        return false, "invalid config format"
+	    end
+	
+	    task.spawn(function()
+	        local itemsLoaded = 0
+	        local yieldFrequency = 15
+	
+	        for _, option in ipairs(decoded.objects) do
+	            if option and option.type and option.idx and self.Parser[option.type] then
+	                local loadSuccess, loadErr = pcall(self.Parser[option.type].Load, self.Parser[option.type], option.idx, option)
+	                -- if not loadSuccess then warn("Failed to load option:", option.idx, loadErr) end -- Opcional: Adicionar warning se falhar
+	
+	                itemsLoaded = itemsLoaded + 1
+	                if itemsLoaded % yieldFrequency == 0 then
+	                    task.wait() -- Pausa periodicamente para não bloquear
+	                end
+	            -- else
+	                -- warn("Skipping invalid/incomplete option data:", option and option.idx or "unknown")
+	            end
+	        end
+	        print("Finished loading config in background coroutine:", name)
+	    end)
+	
+	    return true
 	end
-
 	function SaveManager:IgnoreThemeSettings()
 		self:SetIgnoreIndexes({ 
 			"InterfaceTheme", "AcrylicToggle", "TransparentToggle", "MenuKeybind"
