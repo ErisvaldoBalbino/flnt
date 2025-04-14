@@ -117,20 +117,17 @@ local SaveManager = {} do
         if not successRead then return false, "read error: " .. tostring(fileContent) end
     
         local successDecode, decoded = pcall(httpService.JSONDecode, httpService, fileContent)
-        if not successDecode then return false, "decode error: " .. tostring(decoded) end 
+        if not successDecode then return false, "decode error: " .. tostring(decoded) end
     
         if not decoded or type(decoded.objects) ~= "table" then
-            warn("SaveManager:Load - Invalid or missing 'objects' table in config file:", name) 
+            warn("SaveManager:Load - Invalid or missing 'objects' table in config file:", name)
             return false, "invalid config format"
         end
     
         task.spawn(function()
             task.wait()
     
-            local itemsLoaded = 0
-            local yieldFrequency = 15
-    
-            for i, option in ipairs(decoded.objects) do 
+            for i, option in ipairs(decoded.objects) do
                 if not option or type(option) ~= "table" or not option.type or not option.idx then
                      warn(string.format("SaveManager:Load - Skipping invalid/incomplete option data at index %d in config '%s'", i, name))
                      continue
@@ -139,12 +136,12 @@ local SaveManager = {} do
                 local parserFunc = self.Parser[option.type]
                 local uiElement = SaveManager.Options[option.idx]
     
-                if parserFunc and uiElement then
+                if parserFunc and uiElement then 
                     local loadSuccess, loadErrOrData = pcall(function()
                         if option.type == "Slider" then
                             local numValue = tonumber(option.value)
                             if numValue ~= nil then
-                                parserFunc.Load(option.idx, { value = numValue }) 
+                                parserFunc.Load(option.idx, { value = numValue })
                             else
                                 parserFunc.Load(option.idx, option)
                                 warn(string.format("SaveManager:Load - Slider '%s' value '%s' is not a number, attempting load anyway.", option.idx, tostring(option.value)))
@@ -159,10 +156,8 @@ local SaveManager = {} do
                             tostring(option.idx), tostring(option.type), i, name, tostring(loadErrOrData)))
                     end
     
-                    itemsLoaded = itemsLoaded + 1
-                    if itemsLoaded % yieldFrequency == 0 then
-                        task.wait()
-                    end
+                    task.wait()
+    
                 else
                     if not parserFunc then
                         warn(string.format("SaveManager:Load - No parser found for type '%s' (Option: '%s', Index: %d) in config '%s'",
@@ -174,7 +169,7 @@ local SaveManager = {} do
                     end
                 end
             end
-            print("Finished loading config in background coroutine:", name)
+            print("Finished loading config in background coroutine (yield per item):", name)
         end)
     
         return true
